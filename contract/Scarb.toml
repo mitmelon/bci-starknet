@@ -12,7 +12,3 @@ starknet = ">=2.8.0"
 [[target.starknet-contract]]
 sierra = true
 casm = true
-
-[scripts]
-test   = "snforge test"
-build  = "scarb build"
