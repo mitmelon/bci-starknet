@@ -28,6 +28,7 @@ const MAX_ENROLLMENT_EXTENSIONS: u32 = 13;        // ~3 months max
 const MIN_VARIANCE_MAD: u64          = 1;         // at least 1 unit of spread
 const CHALLENGE_EXPIRY_SECS: u64     = 60;
 const MAX_FAILURES: u32              = 3;
+const MAX_CONSECUTIVE_LOW_CONF: u32  = 5;        // sustained low-conf lockout threshold
 const LOCKOUT_DURATION_SECS: u64     = 86400;
 const DRIFT_ALERT_SIGMA_X100: u64    = 200;
 const DAILY_SECS: u64                = 86400;
@@ -296,6 +297,7 @@ mod BCIAgentIdentity {
         BINARY_STRING_BITS,
     };
     use starknet::{get_caller_address, get_block_timestamp};
+    use core::num::traits::Zero;
     use starknet::storage::{
         StoragePointerReadAccess, StoragePointerWriteAccess,
         StoragePathEntry,
@@ -513,6 +515,8 @@ mod BCIAgentIdentity {
         owner:   ContractAddress,
         relayer: ContractAddress,
     ) {
+        assert(!owner.is_zero(),   'BCI: zero owner address');
+        assert(!relayer.is_zero(), 'BCI: zero relayer address');
         self.ownable.initializer(owner);
         self.relayer.write(relayer);
     }
@@ -566,6 +570,7 @@ mod BCIAgentIdentity {
 
         fn set_relayer(ref self: ContractState, new_relayer: ContractAddress) {
             self.ownable.assert_only_owner();
+            assert(!new_relayer.is_zero(), 'BCI: zero relayer address');
             let old_relayer = self.relayer.read();
             self.relayer.write(new_relayer);
             self.emit(RelayerUpdated { old_relayer, new_relayer });
@@ -719,6 +724,15 @@ mod BCIAgentIdentity {
             agent.auth_key_expiry       = timestamp + DAILY_SECS;
             self.agents.entry(global_agent_id).write(agent);
 
+            // Invalidate the temporary ID to prevent double-enrollment
+            if agent_id != global_agent_id {
+                let mut old_entry = self.agents.entry(agent_id).read();
+                old_entry.is_revoked        = true;
+                old_entry.enrollment_complete = true;
+                old_entry.revoke_reason     = 'MIGRATED_TO_GLOBAL_ID';
+                self.agents.entry(agent_id).write(old_entry);
+            }
+
             self.emit(EnrollmentCompleted {
                 agent_id: global_agent_id,
                 global_agent_id,
@@ -767,6 +781,8 @@ mod BCIAgentIdentity {
             self._only_relayer();
             let template = self.templates.entry(agent_id).read();
             let mut agent = self.agents.entry(agent_id).read();
+            assert(agent.enrollment_complete, 'BCI: not enrolled');
+            assert(!agent.is_revoked,         'BCI: revoked');
             assert(ms_receipt == template.ms_receipt_verifier, 'BCI: invalid MS receipt');
             agent.ms_provisioned = true;
             self.agents.entry(agent_id).write(agent);
@@ -811,14 +827,10 @@ mod BCIAgentIdentity {
 
             if auth_key_hash != agent.current_auth_key_hash {
                 agent.challenge_failure_count += 1;
-                if agent.challenge_failure_count >= MAX_FAILURES {
-                    agent.locked_until = timestamp + LOCKOUT_DURATION_SECS;
-                    let owner = agent.owner_wallet;
-                    let locked_until = agent.locked_until;
-                    self.agents.entry(agent_id).write(agent);
-                    self.emit(AgentLockedOut { agent_id, owner, locked_until, reason: 'INVALID_AUTH_KEY' });
-                } else {
-                    self.agents.entry(agent_id).write(agent);
+                let chfail = agent.challenge_failure_count;
+                self.agents.entry(agent_id).write(agent);
+                if chfail >= MAX_FAILURES {
+                    self._apply_lockout(agent_id, 'INVALID_AUTH_KEY');
                 }
                 self.reentrancy_guard.end();
                 return AuthResult { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'INVALID_AUTH_KEY' };
@@ -839,18 +851,27 @@ mod BCIAgentIdentity {
             if behavioral_score < CONFIDENCE_MED {
                 agent.behavioral_failure_count += 1;
                 agent.consecutive_low_conf += 1;
-                if agent.behavioral_failure_count >= MAX_FAILURES {
-                    agent.locked_until = timestamp + LOCKOUT_DURATION_SECS;
-                    let owner = agent.owner_wallet;
-                    let locked_until = agent.locked_until;
-                    let bfail = agent.behavioral_failure_count;
-                    self.agents.entry(agent_id).write(agent);
-                    self.emit(AgentLockedOut { agent_id, owner, locked_until, reason: 'LOW_BEHAVIORAL_CONFIDENCE' });
+                let bfail  = agent.behavioral_failure_count;
+                let consec = agent.consecutive_low_conf;
+                let owner  = agent.owner_wallet;
+                self.agents.entry(agent_id).write(agent);
+
+                if bfail >= MAX_FAILURES {
+                    // Hard lockout: repeated behavioral failures
+                    self._apply_lockout(agent_id, 'LOW_BEHAVIORAL_CONFIDENCE');
                     self.emit(SuspectedImpersonation { agent_id, owner, failure_count: bfail, timestamp });
                     self.reentrancy_guard.end();
                     return AuthResult { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'LOCKED_OUT' };
                 }
-                self.agents.entry(agent_id).write(agent);
+
+                if consec >= MAX_CONSECUTIVE_LOW_CONF {
+                    // Sustained low confidence — possible impersonation, lock out
+                    self._apply_lockout(agent_id, 'SUSTAINED_LOW_CONFIDENCE');
+                    self.emit(SuspectedImpersonation { agent_id, owner, failure_count: consec, timestamp });
+                    self.reentrancy_guard.end();
+                    return AuthResult { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'LOCKED_OUT' };
+                }
+
                 self.emit(TransactionBlocked { agent_id, amount, reason: 'LOW_BEHAVIORAL_CONFIDENCE', timestamp });
                 self.reentrancy_guard.end();
                 return AuthResult { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'LOW_BEHAVIORAL_CONFIDENCE' };
@@ -860,7 +881,7 @@ mod BCIAgentIdentity {
             let mut nonce_data: Array<felt252> = ArrayTrait::new();
             nonce_data.append(agent_id);
             nonce_data.append(timestamp.into());
-            nonce_data.append(amount.try_into().unwrap());
+            nonce_data.append(amount.try_into().expect('BCI: amount too large'));
             let nonce      = poseidon_hash_span(nonce_data.span());
             let expires_at = timestamp + CHALLENGE_EXPIRY_SECS;
 
@@ -903,6 +924,13 @@ mod BCIAgentIdentity {
             assert(agent.challenge_active, 'BCI: no active challenge');
             assert(nonce == agent.active_nonce, 'BCI: wrong nonce');
             assert(timestamp <= agent.nonce_expiry, 'BCI: challenge expired');
+
+            let template = self.templates.entry(agent_id).read();
+            let mut rhash_data: Array<felt252> = ArrayTrait::new();
+            rhash_data.append(nonce);
+            rhash_data.append(template.enrollment_response_seed);
+            let expected_response_hash = poseidon_hash_span(rhash_data.span());
+            assert(response_hash == expected_response_hash, 'BCI: invalid response hash');
 
             agent.challenge_active = false;
             agent.active_nonce     = 0;
@@ -992,7 +1020,10 @@ mod BCIAgentIdentity {
         ) {
             self._only_relayer();
             let agent     = self.agents.entry(agent_id).read();
+            assert(agent.enrollment_complete, 'BCI: not enrolled');
+            assert(!agent.is_revoked,         'BCI: revoked');
             let timestamp = get_block_timestamp();
+            let old = self.templates.entry(agent_id).read();
 
             if drift_sigma_x100 > DRIFT_ALERT_SIGMA_X100 {
                 let day = timestamp / DAILY_SECS;
@@ -1000,12 +1031,13 @@ mod BCIAgentIdentity {
                 sig_data.append(agent_id);
                 sig_data.append(drift_sigma_x100.into());
                 sig_data.append(day.into());
+                // include template_version to prevent same-day signature replay
+                sig_data.append(old.template_version.into());
                 let expected_sig = poseidon_hash_span(sig_data.span());
                 assert(owner_signature == expected_sig, 'BCI: major drift owner sig');
                 self.emit(MajorDriftDetected { agent_id, owner: agent.owner_wallet, drift_sigma_x100, timestamp });
             }
 
-            let old = self.templates.entry(agent_id).read();
             let new_version = old.template_version + 1;
             let mut t = new_template;
             t.commitment_hash          = old.commitment_hash;
@@ -1055,6 +1087,7 @@ mod BCIAgentIdentity {
         fn request_reenrollment(ref self: ContractState, agent_id: felt252) {
             self._only_agent_owner(agent_id);
             let mut agent = self.agents.entry(agent_id).read();
+            assert(!agent.is_revoked, 'BCI: revoked agent');
             let timestamp = get_block_timestamp();
             agent.enrollment_complete      = false;
             agent.ms_provisioned           = false;
