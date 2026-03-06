@@ -15,21 +15,21 @@
 git clone https://github.com/mitmelon/bci-starknet
 cd bci-starknet
 npm install
-node scripts/demo.js
+node src/demo.js
 ```
 
 **Expected:** 10 demo steps, 19/19 unit tests passing, all attack vectors blocked.
 
 ```bash
 # Unit tests only:
-node scripts/test_crypto.js
+node src/test_crypto.js
 
 # With live Starknet Sepolia connection:
-node scripts/demo.js --testnet
+node src/demo.js --testnet
 
 # Deploy to Sepolia:
 scarb build
-node scripts/deploy.js
+node src/deploy.js
 ```
 
 ---
