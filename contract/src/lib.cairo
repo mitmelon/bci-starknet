@@ -308,7 +308,6 @@ mod BCIAgentIdentity {
     use openzeppelin_security::pausable::PausableComponent;
     use openzeppelin_security::reentrancyguard::ReentrancyGuardComponent;
     use openzeppelin_upgrades::UpgradeableComponent;
-    use openzeppelin_upgrades::interface::IUpgradeable;
 
     component!(path: OwnableComponent,         storage: ownable,          event: OwnableEvent);
     component!(path: PausableComponent,        storage: pausable,         event: PausableEvent);
