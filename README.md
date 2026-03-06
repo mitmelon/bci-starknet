@@ -15,22 +15,31 @@
 git clone https://github.com/mitmelon/bci-starknet
 cd bci-starknet
 npm install
+cp .env.example .env        # fill in CONTRACT_ADDRESS, ACCOUNT_ADDRESS, PRIVATE_KEY
 node src/demo.js
 ```
 
-**Expected:** 10 demo steps, 19/19 unit tests passing, all attack vectors blocked.
+**Expected:** 10 demo steps, real Starknet Sepolia transactions submitted, 19/19 unit tests passing.
 
 ```bash
-# Unit tests only:
+# Unit tests only (no .env required):
 node src/test_crypto.js
 
-# With live Starknet Sepolia connection:
-node src/demo.js --testnet
-
-# Deploy to Sepolia:
+# Deploy contract to Sepolia first:
 scarb build
 node src/deploy.js
+
+# Then run the live on-chain demo:
+node src/demo.js
 ```
+
+**Setup for live demo:**
+1. Deploy `contract/src/lib.cairo` and note the contract address
+2. Copy `.env.example` to `.env` and set:
+   - `CONTRACT_ADDRESS` — deployed contract address
+   - `ACCOUNT_ADDRESS` — your Starknet account (must be set as `relayer` in the constructor)
+   - `PRIVATE_KEY` — your account's private key
+3. Optionally set `GLOBAL_AGENT_ID` after running `complete_enrollment` (requires 7-day wait) to enable the full authorization demo
 
 ---
 
@@ -168,12 +177,12 @@ Any server in the world can fetch the public `enrollment_response_seed` from Sta
 ```
 contract/
    src/
-      bci_agent_identity.cairo    ← Cairo v1 contract (1,026 lines)
-    Scarb.toml                    ← Cairo package manifest
+      lib.cairo                    ← Cairo v2 contract (BCIAgentIdentityV1)
+    Scarb.toml                     ← Cairo package manifest
 src/
-  demo.js                         ← Full CMD demo (offline + --testnet)
-  test_crypto.js                  ← Unit tests (19/19 passing)
-  deploy.js                       ← Starknet Sepolia deployment
+  demo.js                          ← Full on-chain demo (real Starknet Sepolia)
+  test_crypto.js                   ← Unit tests (19/19 passing)
+.env.example                       ← Environment variable template
 README.md
 ```
 
