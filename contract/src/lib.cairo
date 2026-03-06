@@ -8,16 +8,11 @@
 // ================================================================
 
 use starknet::ContractAddress;
-use starknet::get_caller_address;
-use starknet::get_block_timestamp;
-use core::poseidon::poseidon_hash_span;
-use core::array::ArrayTrait;
-use core::option::OptionTrait;
 
 // ================================================================
 // CONSTANTS
 // ================================================================
-const BCI_VERSION: felt252          = 1.0.0;
+const BCI_VERSION: felt252          = '1.0.0';
 const BINARY_STRING_BITS: u32       = 64;      
 const ENROLLMENT_PERIOD_SECS: u64   = 604800;  // 7 days
 const MIN_OBSERVATIONS: u32         = 100;
@@ -283,6 +278,10 @@ mod BCIAgentIdentityV1 {
         DAILY_SECS, CONFIDENCE_HIGH, CONFIDENCE_MED,
     };
     use starknet::{get_caller_address, get_block_timestamp};
+    use starknet::storage::{
+        StoragePointerReadAccess, StoragePointerWriteAccess,
+        StoragePathEntry,
+    };
     use core::poseidon::poseidon_hash_span;
     use core::array::ArrayTrait;
 
@@ -447,24 +446,24 @@ mod BCIAgentIdentityV1 {
             assert(get_caller_address() == self.relayer.read(), 'BCI: only relayer');
         }
         fn _only_owner(self: @ContractState, agent_id: felt252) {
-            let agent = self.agents.read(agent_id);
+            let agent = self.agents.entry(agent_id).read();
             assert(get_caller_address() == agent.owner_wallet, 'BCI: only owner');
         }
         fn _not_paused(self: @ContractState) {
             assert(!self.paused.read(), 'BCI: paused');
         }
         fn _not_locked(self: @ContractState, agent_id: felt252) {
-            let agent = self.agents.read(agent_id);
+            let agent = self.agents.entry(agent_id).read();
             assert(
                 get_block_timestamp() >= agent.locked_until,
                 'BCI: agent locked out'
             );
         }
         fn _apply_lockout(ref self: ContractState, agent_id: felt252, reason: felt252) {
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             let until = get_block_timestamp() + LOCKOUT_DURATION_SECS;
             agent.locked_until = until;
-            self.agents.write(agent_id, agent);
+            self.agents.entry(agent_id).write(agent);
             self.emit(AgentLockedOut {
                 agent_id,
                 owner: agent.owner_wallet,
@@ -473,12 +472,12 @@ mod BCIAgentIdentityV1 {
             });
         }
         fn _reset_daily_if_new_day(ref self: ContractState, agent_id: felt252) {
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             let today = get_block_timestamp() / DAILY_SECS;
             if today > agent.last_spend_day {
                 agent.daily_spent = 0;
                 agent.last_spend_day = today;
-                self.agents.write(agent_id, agent);
+                self.agents.entry(agent_id).write(agent);
             }
         }
     }
@@ -534,12 +533,12 @@ mod BCIAgentIdentityV1 {
                 flagged_transactions:    0,
             };
 
-            self.agents.write(temp_id, reg);
-            self.obs_count.write(temp_id, 0);
+            self.agents.entry(temp_id).write(reg);
+            self.obs_count.entry(temp_id).write(0);
 
-            let count = self.owner_count.read(caller);
-            self.owner_agents.write((caller, count), temp_id);
-            self.owner_count.write(caller, count + 1);
+            let count = self.owner_count.entry(caller).read();
+            self.owner_agents.entry((caller, count)).write(temp_id);
+            self.owner_count.entry(caller).write(count + 1);
 
             self.emit(EnrollmentStarted { agent_id: temp_id, owner: caller, timestamp });
             temp_id
@@ -552,12 +551,12 @@ mod BCIAgentIdentityV1 {
             observation_count: u32,
         ) {
             self._only_relayer();
-            let agent = self.agents.read(agent_id);
+            let agent = self.agents.entry(agent_id).read();
             assert(!agent.enrollment_complete, 'BCI: already enrolled');
             assert(!agent.is_revoked, 'BCI: revoked');
 
-            let prev_count = self.obs_count.read(agent_id);
-            let prev_hash  = self.obs_chain_hash.read(agent_id);
+            let prev_count = self.obs_count.entry(agent_id).read();
+            let prev_hash  = self.obs_chain_hash.entry(agent_id).read();
 
             let mut chain: Array<felt252> = ArrayTrait::new();
             chain.append(prev_hash);
@@ -565,8 +564,8 @@ mod BCIAgentIdentityV1 {
             chain.append(observation_count.into());
             let new_hash = poseidon_hash_span(chain.span());
 
-            self.obs_count.write(agent_id, prev_count + observation_count);
-            self.obs_chain_hash.write(agent_id, new_hash);
+            self.obs_count.entry(agent_id).write(prev_count + observation_count);
+            self.obs_chain_hash.entry(agent_id).write(new_hash);
         }
 
         fn complete_enrollment(
@@ -583,11 +582,11 @@ mod BCIAgentIdentityV1 {
             auth_key_hash:              felt252,
         ) {
             self._only_relayer();
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             assert(!agent.enrollment_complete, 'BCI: already enrolled');
             assert(!agent.is_revoked, 'BCI: revoked');
 
-            let obs_count = self.obs_count.read(agent_id);
+            let obs_count = self.obs_count.entry(agent_id).read();
             assert(obs_count >= MIN_OBSERVATIONS, 'BCI: insufficient observations');
 
             let timestamp = get_block_timestamp();
@@ -608,7 +607,7 @@ mod BCIAgentIdentityV1 {
             t.template_version          = 1;
             t.last_drift_update         = timestamp;
             t.is_active                 = true;
-            self.templates.write(global_agent_id, t);
+            self.templates.entry(global_agent_id).write(t);
 
             // Update agent registration
             agent.agent_id               = global_agent_id;
@@ -616,7 +615,7 @@ mod BCIAgentIdentityV1 {
             agent.ms_provisioned         = false; // not confirmed yet
             agent.current_auth_key_hash  = auth_key_hash;
             agent.auth_key_expiry        = timestamp + DAILY_SECS;
-            self.agents.write(global_agent_id, agent);
+            self.agents.entry(global_agent_id).write(agent);
 
             self.emit(EnrollmentCompleted {
                 agent_id: global_agent_id,
@@ -634,14 +633,14 @@ mod BCIAgentIdentityV1 {
         ) {
            
             self._only_relayer();
-            let template = self.templates.read(agent_id);
-            let mut agent = self.agents.read(agent_id);
+            let template = self.templates.entry(agent_id).read();
+            let mut agent = self.agents.entry(agent_id).read();
 
             // Direct equality — receipt_verifier was stored at enrollment
             assert(ms_receipt == template.ms_receipt_verifier, 'BCI: invalid MS receipt');
 
             agent.ms_provisioned = true;
-            self.agents.write(agent_id, agent);
+            self.agents.entry(agent_id).write(agent);
             self.emit(MSProvisioned { agent_id, timestamp: get_block_timestamp() });
         }
 
@@ -657,7 +656,7 @@ mod BCIAgentIdentityV1 {
             self._only_relayer();
             self._not_paused();
 
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             let timestamp = get_block_timestamp();
             let empty_challenge = ChallengeIssuance { nonce: 0, expires_at: 0 };
 
@@ -679,10 +678,10 @@ mod BCIAgentIdentityV1 {
                 agent.challenge_failure_count += 1;
                 if agent.challenge_failure_count >= MAX_FAILURES {
                     agent.locked_until = timestamp + LOCKOUT_DURATION_SECS;
-                    self.agents.write(agent_id, agent);
+                    self.agents.entry(agent_id).write(agent);
                     self.emit(AgentLockedOut { agent_id, owner: agent.owner_wallet, locked_until: agent.locked_until, reason: 'INVALID_AUTH_KEY' });
                 }
-                self.agents.write(agent_id, agent);
+                self.agents.entry(agent_id).write(agent);
                 return AuthResultV3 { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'INVALID_AUTH_KEY' };
             }
             if timestamp > agent.auth_key_expiry {
@@ -702,12 +701,12 @@ mod BCIAgentIdentityV1 {
                 // FIX 2: lockout on repeated behavioral failures
                 if agent.behavioral_failure_count >= MAX_FAILURES {
                     agent.locked_until = timestamp + LOCKOUT_DURATION_SECS;
-                    self.agents.write(agent_id, agent);
+                    self.agents.entry(agent_id).write(agent);
                     self.emit(AgentLockedOut { agent_id, owner: agent.owner_wallet, locked_until: agent.locked_until, reason: 'LOW_BEHAVIORAL_CONFIDENCE' });
                     self.emit(SuspectedImpersonation { agent_id, owner: agent.owner_wallet, failure_count: agent.behavioral_failure_count, timestamp });
                     return AuthResultV3 { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'LOCKED_OUT' };
                 }
-                self.agents.write(agent_id, agent);
+                self.agents.entry(agent_id).write(agent);
                 self.emit(TransactionBlocked { agent_id, amount, reason: 'LOW_BEHAVIORAL_CONFIDENCE', timestamp });
                 return AuthResultV3 { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'LOW_BEHAVIORAL_CONFIDENCE' };
             }
@@ -727,7 +726,7 @@ mod BCIAgentIdentityV1 {
             agent.nonce_conf_score  = behavioral_score;
             agent.challenge_active  = true;
             agent.total_challenges_issued += 1;
-            self.agents.write(agent_id, agent);
+            self.agents.entry(agent_id).write(agent);
 
             self.emit(ChallengeIssued { agent_id, nonce, expires_at });
 
@@ -750,7 +749,7 @@ mod BCIAgentIdentityV1 {
             response_valid: bool,
         ) -> AuthResultV3 {
             self._only_relayer();
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             let timestamp = get_block_timestamp();
             let empty_challenge = ChallengeIssuance { nonce: 0, expires_at: 0 };
 
@@ -771,14 +770,14 @@ mod BCIAgentIdentityV1 {
                     agent.locked_until = timestamp + LOCKOUT_DURATION_SECS;
                     agent.is_revoked   = true;
                     agent.revoke_reason = 'REPEATED_CHALLENGE_FAILURES';
-                    self.agents.write(agent_id, agent);
+                    self.agents.entry(agent_id).write(agent);
                     self.emit(AgentLockedOut { agent_id, owner: agent.owner_wallet, locked_until: agent.locked_until, reason: 'REPEATED_CHALLENGE_FAILURES' });
                     self.emit(SuspectedImpersonation { agent_id, owner: agent.owner_wallet, failure_count, timestamp });
                     self.emit(AgentRevoked { agent_id, owner: agent.owner_wallet, reason: 'REPEATED_CHALLENGE_FAILURES', timestamp });
                     return AuthResultV3 { approved: false, conf_score: 0, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'REVOKED_AUTO' };
                 }
 
-                self.agents.write(agent_id, agent);
+                self.agents.entry(agent_id).write(agent);
                 self.emit(ChallengeFailed { agent_id, owner: agent.owner_wallet, failure_count, timestamp });
                 return AuthResultV3 { approved: false, conf_score: 0, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'CHALLENGE_FAILED' };
             }
@@ -807,7 +806,7 @@ mod BCIAgentIdentityV1 {
             }
 
             if agent.daily_spent + amount > limit {
-                self.agents.write(agent_id, agent);
+                self.agents.entry(agent_id).write(agent);
                 return AuthResultV3 { approved: false, conf_score, spending_limit: limit, flag_owner: false, needs_challenge: false, challenge: empty_challenge, reason: 'DAILY_LIMIT_EXCEEDED' };
             }
 
@@ -816,7 +815,7 @@ mod BCIAgentIdentityV1 {
             agent.consecutive_low_conf = 0;
             agent.total_transactions  += 1;
             if flag { agent.flagged_transactions += 1; }
-            self.agents.write(agent_id, agent);
+            self.agents.entry(agent_id).write(agent);
 
             if flag {
                 self.emit(AgentFlagged { agent_id, owner: agent.owner_wallet, conf_score, timestamp });
@@ -844,7 +843,7 @@ mod BCIAgentIdentityV1 {
             owner_signature:  felt252,
         ) {
             self._only_relayer();
-            let agent    = self.agents.read(agent_id);
+            let agent    = self.agents.entry(agent_id).read();
             let timestamp = get_block_timestamp();
 
             // Major drift requires owner signature
@@ -861,7 +860,7 @@ mod BCIAgentIdentityV1 {
                 self.emit(MajorDriftDetected { agent_id, owner: agent.owner_wallet, drift_sigma_x100, timestamp });
             }
 
-            let old_template = self.templates.read(agent_id);
+            let old_template = self.templates.entry(agent_id).read();
             let new_version  = old_template.template_version + 1;
             let mut t = new_template;
             // Preserve immutable enrollment data
@@ -875,7 +874,7 @@ mod BCIAgentIdentityV1 {
             t.template_version          = new_version;
             t.last_drift_update         = timestamp;
             t.is_active                 = true;
-            self.templates.write(agent_id, t);
+            self.templates.entry(agent_id).write(t);
 
             self.emit(TemplateDriftUpdated { agent_id, drift_sigma_x100, new_version, timestamp });
         }
@@ -886,7 +885,7 @@ mod BCIAgentIdentityV1 {
             behavioral_score: u64,
             response_valid:   bool,
         ) -> bool {
-            let agent = self.agents.read(agent_id);
+            let agent = self.agents.entry(agent_id).read();
             if !agent.enrollment_complete || agent.is_revoked { return false; }
             if get_block_timestamp() < agent.locked_until { return false; }
             if behavioral_score < CONFIDENCE_MED { return false; }
@@ -900,19 +899,19 @@ mod BCIAgentIdentityV1 {
             new_expiry:   u64,
         ) {
             self._only_owner(agent_id);
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             assert(!agent.is_revoked, 'BCI: revoked');
             agent.current_auth_key_hash = new_key_hash;
             agent.auth_key_expiry       = new_expiry;
             // Reset failure count on successful key rotation (owner confirmed)
             agent.challenge_failure_count = 0;
-            self.agents.write(agent_id, agent);
+            self.agents.entry(agent_id).write(agent);
             self.emit(AuthKeyRotated { agent_id, new_expiry, timestamp: get_block_timestamp() });
         }
 
         fn request_reenrollment(ref self: ContractState, agent_id: felt252) {
             self._only_owner(agent_id);
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             let timestamp = get_block_timestamp();
             agent.enrollment_complete    = false;
             agent.ms_provisioned         = false;
@@ -920,18 +919,18 @@ mod BCIAgentIdentityV1 {
             agent.challenge_failure_count  = 0;
             agent.behavioral_failure_count = 0;
             agent.locked_until           = 0;
-            self.agents.write(agent_id, agent);
-            self.obs_count.write(agent_id, 0);
-            self.obs_chain_hash.write(agent_id, 0);
+            self.agents.entry(agent_id).write(agent);
+            self.obs_count.entry(agent_id).write(0);
+            self.obs_chain_hash.entry(agent_id).write(0);
             self.emit(ReenrollmentRequested { agent_id, owner: get_caller_address(), timestamp });
         }
 
         fn revoke_agent(ref self: ContractState, agent_id: felt252, reason: felt252) {
             self._only_owner(agent_id);
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             agent.is_revoked    = true;
             agent.revoke_reason = reason;
-            self.agents.write(agent_id, agent);
+            self.agents.entry(agent_id).write(agent);
             self.emit(AgentRevoked { agent_id, owner: get_caller_address(), reason, timestamp: get_block_timestamp() });
         }
 
@@ -942,28 +941,28 @@ mod BCIAgentIdentityV1 {
             med_conf_daily_limit:  u256,
         ) {
             self._only_owner(agent_id);
-            let mut agent = self.agents.read(agent_id);
+            let mut agent = self.agents.entry(agent_id).read();
             agent.high_conf_daily_limit = high_conf_daily_limit;
             agent.med_conf_daily_limit  = med_conf_daily_limit;
-            self.agents.write(agent_id, agent);
+            self.agents.entry(agent_id).write(agent);
         }
 
         fn get_agent(self: @ContractState, agent_id: felt252) -> AgentRegistrationV3 {
-            self.agents.read(agent_id)
+            self.agents.entry(agent_id).read()
         }
         fn get_template(self: @ContractState, agent_id: felt252) -> BCITemplateV3 {
-            self.templates.read(agent_id)
+            self.templates.entry(agent_id).read()
         }
         fn has_global_identity(self: @ContractState, agent_id: felt252) -> bool {
-            let agent = self.agents.read(agent_id);
+            let agent = self.agents.entry(agent_id).read();
             agent.enrollment_complete && !agent.is_revoked
         }
         fn is_locked_out(self: @ContractState, agent_id: felt252) -> bool {
-            let agent = self.agents.read(agent_id);
+            let agent = self.agents.entry(agent_id).read();
             get_block_timestamp() < agent.locked_until
         }
         fn get_enrollment_response_seed(self: @ContractState, agent_id: felt252) -> felt252 {
-            self.templates.read(agent_id).enrollment_response_seed
+            self.templates.entry(agent_id).read().enrollment_response_seed
         }
     }
 }
