@@ -1,0 +1,11 @@
+# Directories
+node_modules/
+
+
+
+# Files
+.env.local
+error.log
+.env
+.DS_Store
+package-lock.json

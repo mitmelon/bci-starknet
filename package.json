@@ -1,0 +1,19 @@
+{
+  "name": "bci-starknet",
+  "version": "1.0.0",
+  "description": "BCI v1.0 — Behavioral Commitment Identity on Starknet. Re{define} Hackathon — Privacy Track.",
+  "scripts": {
+    "demo":   "node src/demo.js",
+    "deploy": "node src/scripts/deploy.js",
+    "test":   "node src/scripts/test_crypto.js"
+  },
+  "keywords": ["bci","starknet","cairo","zk","privacy","ai-agent","identity","ziondefi"],
+  "author": "Adeyeye George <manomitehq@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "starknet": "^6.11.0",
+    "crypto": "^1.0.1",
+    "dotenv": "^17.2.3",
+    "uuid": "^13.0.0"
+  }
+}
