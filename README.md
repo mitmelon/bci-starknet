@@ -69,7 +69,7 @@ ENROLLMENT (7 days):
   K        = random_bytes(256)               ← ephemeral secret
   C        = K XOR B_stable                  ← fuzzy commitment (hides B)
   MS       = HMAC(K, "MemorySecret:agentId") ← Memory Secret
-  seed     = HMAC(MS, "BCI_RESPONSE_SEED_V3")← stored on Starknet
+  seed     = HMAC(MS, "BCI_RESPONSE_SEED")← stored on Starknet
   
   K DESTROYED. MS DESTROYED. Nothing secret persists.
 
@@ -121,7 +121,7 @@ The bug was: `Poseidon(HMAC(MS,nonce,id)) ≠ Poseidon(Poseidon(MS),nonce,id)`. 
 
 ## Starknet Integration
 
-`BCIAgentIdentityV1.cairo` (Cairo v2) stores identity commitments and enforces authorization rules on-chain:
+`BCIAgentIdentity.cairo` (Cairo v2) stores identity commitments and enforces authorization rules on-chain:
 
 ```
 complete_enrollment(agent_id, commitment_hash, binary_high, binary_low,
@@ -162,7 +162,7 @@ Any server in the world can fetch the public `enrollment_response_seed` from Sta
                   │  public verifiers only
                   ▼
 ┌─────────────────────────────────────────────────────┐
-│  Starknet — BCIAgentIdentityV3.cairo                │
+│  Starknet — BCIAgentIdentity.cairo                │
 │  • enrollment_response_seed (public)                │
 │  • ms_commitment (public)                           │
 │  • Authorization rules enforced on-chain            │
@@ -177,7 +177,7 @@ Any server in the world can fetch the public `enrollment_response_seed` from Sta
 ```
 contract/
    src/
-      lib.cairo                    ← Cairo v2 contract (BCIAgentIdentityV1)
+      lib.cairo                    ← Cairo v2 contract (BCIAgentIdentity)
     Scarb.toml                     ← Cairo package manifest
 src/
   demo.js                          ← Full on-chain demo (real Starknet Sepolia)
