@@ -461,12 +461,13 @@ mod BCIAgentIdentityV1 {
         }
         fn _apply_lockout(ref self: ContractState, agent_id: felt252, reason: felt252) {
             let mut agent = self.agents.entry(agent_id).read();
+            let owner = agent.owner_wallet;
             let until = get_block_timestamp() + LOCKOUT_DURATION_SECS;
             agent.locked_until = until;
             self.agents.entry(agent_id).write(agent);
             self.emit(AgentLockedOut {
                 agent_id,
-                owner: agent.owner_wallet,
+                owner,
                 locked_until: until,
                 reason,
             });
@@ -592,7 +593,7 @@ mod BCIAgentIdentityV1 {
             let timestamp = get_block_timestamp();
             assert(
                 timestamp >= agent.enrollment_start + ENROLLMENT_PERIOD_SECS,
-                'BCI: enrollment period incomplete'
+                'BCI: enrollment incomplete'
             );
 
             let mut t = template;
@@ -678,10 +679,13 @@ mod BCIAgentIdentityV1 {
                 agent.challenge_failure_count += 1;
                 if agent.challenge_failure_count >= MAX_FAILURES {
                     agent.locked_until = timestamp + LOCKOUT_DURATION_SECS;
+                    let owner = agent.owner_wallet;
+                    let locked_until = agent.locked_until;
                     self.agents.entry(agent_id).write(agent);
-                    self.emit(AgentLockedOut { agent_id, owner: agent.owner_wallet, locked_until: agent.locked_until, reason: 'INVALID_AUTH_KEY' });
+                    self.emit(AgentLockedOut { agent_id, owner, locked_until, reason: 'INVALID_AUTH_KEY' });
+                } else {
+                    self.agents.entry(agent_id).write(agent);
                 }
-                self.agents.entry(agent_id).write(agent);
                 return AuthResultV3 { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'INVALID_AUTH_KEY' };
             }
             if timestamp > agent.auth_key_expiry {
@@ -701,9 +705,12 @@ mod BCIAgentIdentityV1 {
                 // FIX 2: lockout on repeated behavioral failures
                 if agent.behavioral_failure_count >= MAX_FAILURES {
                     agent.locked_until = timestamp + LOCKOUT_DURATION_SECS;
+                    let owner = agent.owner_wallet;
+                    let locked_until = agent.locked_until;
+                    let bfail_count = agent.behavioral_failure_count;
                     self.agents.entry(agent_id).write(agent);
-                    self.emit(AgentLockedOut { agent_id, owner: agent.owner_wallet, locked_until: agent.locked_until, reason: 'LOW_BEHAVIORAL_CONFIDENCE' });
-                    self.emit(SuspectedImpersonation { agent_id, owner: agent.owner_wallet, failure_count: agent.behavioral_failure_count, timestamp });
+                    self.emit(AgentLockedOut { agent_id, owner, locked_until, reason: 'LOW_BEHAVIORAL_CONFIDENCE' });
+                    self.emit(SuspectedImpersonation { agent_id, owner, failure_count: bfail_count, timestamp });
                     return AuthResultV3 { approved: false, conf_score: behavioral_score, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'LOCKED_OUT' };
                 }
                 self.agents.entry(agent_id).write(agent);
@@ -770,15 +777,18 @@ mod BCIAgentIdentityV1 {
                     agent.locked_until = timestamp + LOCKOUT_DURATION_SECS;
                     agent.is_revoked   = true;
                     agent.revoke_reason = 'REPEATED_CHALLENGE_FAILURES';
+                    let owner = agent.owner_wallet;
+                    let locked_until = agent.locked_until;
                     self.agents.entry(agent_id).write(agent);
-                    self.emit(AgentLockedOut { agent_id, owner: agent.owner_wallet, locked_until: agent.locked_until, reason: 'REPEATED_CHALLENGE_FAILURES' });
-                    self.emit(SuspectedImpersonation { agent_id, owner: agent.owner_wallet, failure_count, timestamp });
-                    self.emit(AgentRevoked { agent_id, owner: agent.owner_wallet, reason: 'REPEATED_CHALLENGE_FAILURES', timestamp });
+                    self.emit(AgentLockedOut { agent_id, owner, locked_until, reason: 'REPEATED_CHALLENGE_FAILURES' });
+                    self.emit(SuspectedImpersonation { agent_id, owner, failure_count, timestamp });
+                    self.emit(AgentRevoked { agent_id, owner, reason: 'REPEATED_CHALLENGE_FAILURES', timestamp });
                     return AuthResultV3 { approved: false, conf_score: 0, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'REVOKED_AUTO' };
                 }
 
+                let owner = agent.owner_wallet;
                 self.agents.entry(agent_id).write(agent);
-                self.emit(ChallengeFailed { agent_id, owner: agent.owner_wallet, failure_count, timestamp });
+                self.emit(ChallengeFailed { agent_id, owner, failure_count, timestamp });
                 return AuthResultV3 { approved: false, conf_score: 0, spending_limit: 0, flag_owner: true, needs_challenge: false, challenge: empty_challenge, reason: 'CHALLENGE_FAILED' };
             }
 
@@ -815,10 +825,11 @@ mod BCIAgentIdentityV1 {
             agent.consecutive_low_conf = 0;
             agent.total_transactions  += 1;
             if flag { agent.flagged_transactions += 1; }
+            let owner = agent.owner_wallet;
             self.agents.entry(agent_id).write(agent);
 
             if flag {
-                self.emit(AgentFlagged { agent_id, owner: agent.owner_wallet, conf_score, timestamp });
+                self.emit(AgentFlagged { agent_id, owner, conf_score, timestamp });
             }
             self.emit(ChallengePassed { agent_id, amount, conf_score, timestamp });
             self.emit(TransactionAuthorized { agent_id, amount, conf_score, merchant, timestamp });
@@ -855,7 +866,7 @@ mod BCIAgentIdentityV1 {
                 sig_data.append(drift_sigma_x100.into());
                 sig_data.append(day.into());
                 let expected_sig = poseidon_hash_span(sig_data.span());
-                assert(owner_signature == expected_sig, 'BCI: major drift needs owner sig');
+                assert(owner_signature == expected_sig, 'BCI: major drift owner sig');
 
                 self.emit(MajorDriftDetected { agent_id, owner: agent.owner_wallet, drift_sigma_x100, timestamp });
             }
