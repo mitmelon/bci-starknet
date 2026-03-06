@@ -13,12 +13,6 @@ starknet = ">=2.8.0"
 sierra = true
 casm = true
 
-[dev-dependencies]
-snforge_std = { version = "0.31.0", registry = "scarbs_xyz" }
-
-[registries]
-scarbs_xyz = { index = "https://scarbs.xyz/" }
-
 [scripts]
 test   = "snforge test"
 build  = "scarb build"
