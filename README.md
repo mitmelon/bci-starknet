@@ -143,6 +143,14 @@ cp .env.example .env        # fill in values (see Environment Setup below)
 node src/demo.js
 ```
 
+> 💡 **Skip deployment — use our live Sepolia contract:**
+> The contract is already deployed on Starknet Sepolia at:
+> ```
+> 0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218
+> ```
+> Just set `CONTRACT_ADDRESS` to this value in your `.env` and you're good to go.
+> [View on Starkscan ↗](https://sepolia.starkscan.co/contract/0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218)
+
 **Expected output:**
 - ✅ 10 demo steps executed
 - ✅ Real Starknet Sepolia transactions submitted
@@ -151,6 +159,8 @@ node src/demo.js
 ---
 
 ## 🛠️ Deploy with sncast
+
+> **Optional** — A live contract is already deployed on Sepolia at `0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218`. You only need to follow these steps if you want to deploy your own instance (e.g. Mainnet, private network, or a fresh Sepolia deployment with yourself as both owner and relayer).
 
 Install the Starknet Foundry toolchain first:
 
@@ -237,12 +247,21 @@ Copy the `contract_address` from the output — you'll add it to `.env` next.
 cp .env.example .env
 ```
 
+> 🚀 **Live Sepolia deployment available** — no need to deploy your own contract to get started.
+> Use the address below and skip straight to running the demo:
+>
+> | | |
+> |---|---|
+> | **Network** | Starknet Sepolia |
+> | **Contract** | `0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218` |
+> | **Starkscan** | [View contract ↗](https://sepolia.starkscan.co/contract/0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218) |
+
 Open `.env` and fill in:
 
 ```env
 # ── Sepolia (testnet) ──────────────────────────────────────────
 RPC_URL=https://free-rpc.nethermind.io/sepolia-juno
-CONTRACT_ADDRESS=0x<your_sepolia_contract_address>
+CONTRACT_ADDRESS=0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218
 ACCOUNT_ADDRESS=0x<your_starknet_account>
 PRIVATE_KEY=0x<your_private_key>
 
