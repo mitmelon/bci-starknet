@@ -149,7 +149,7 @@ node src/demo.js
 > 0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218
 > ```
 > Just set `CONTRACT_ADDRESS` to this value in your `.env` and you're good to go.
-> [View on Starkscan ↗](https://sepolia.starkscan.co/contract/0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218)
+> [View on Starkscan ↗](https://sepolia.voyager.online/contract/0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218)
 
 **Expected output:**
 - ✅ 10 demo steps executed
