@@ -1511,7 +1511,7 @@ async function runDemo() {
   }
   NL();
   DIM(
-    `View transactions on Starkscan: https://sepolia.starkscan.co/contract/${CONTRACT_ADDRESS}`,
+    `View transactions on Voyager: https://sepolia.voyager.online/contract/${CONTRACT_ADDRESS}`,
   );
 
   NL();
