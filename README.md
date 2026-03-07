@@ -232,12 +232,12 @@ sncast --account my-account deploy \
 
 Copy the `contract_address` from the output — you'll add it to `.env` next.
 
-### 5. Verify on Starkscan
+### 5. Verify on Voyager
 
 | Network | URL |
 |---|---|
-| **Sepolia** | `https://sepolia.starkscan.co/contract/<CONTRACT_ADDRESS>` |
-| **Mainnet** | `https://starkscan.co/contract/<CONTRACT_ADDRESS>` |
+| **Sepolia** | `https://sepolia.voyager.online/contract/<CONTRACT_ADDRESS>` |
+| **Mainnet** | `https://voyager.online/contract/<CONTRACT_ADDRESS>` |
 
 ---
 
@@ -254,7 +254,7 @@ cp .env.example .env
 > |---|---|
 > | **Network** | Starknet Sepolia |
 > | **Contract** | `0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218` |
-> | **Starkscan** | [View contract ↗](https://sepolia.starkscan.co/contract/0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218) |
+> | **Voyager** | [View contract ↗](https://sepolia.voyager.online/contract/0x03d6466ad06b5eede41b1e6e257388ebe8f4bd9cb3be1d081b999fa35c0eb218) |
 
 Open `.env` and fill in:
 
